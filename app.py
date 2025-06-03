@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import tensorflow as tf
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -9,9 +8,17 @@ from sklearn.preprocessing import MinMaxScaler
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import tensorflow with error handling
+try:
+    import tensorflow as tf
+    TF_AVAILABLE = True
+except ImportError:
+    st.error("TensorFlow not available. Please install tensorflow.")
+    TF_AVAILABLE = False
+
 # ------------------ CONFIG ------------------
 st.set_page_config(
-    page_title="🚀 Crypto Forecast Dashboard", 
+    page_title="🚀 Crypto AI Forecast Hub", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -196,16 +203,25 @@ st.markdown('<h1 class="crypto-header">🚀 CRYPTO AI FORECAST HUB</h1>', unsafe
 # ------------------ LOAD MODEL & DATA ------------------
 @st.cache_resource
 def load_model(path):
+    if not TF_AVAILABLE:
+        st.error("TensorFlow is required but not available.")
+        return None
     try:
         return tf.keras.models.load_model(path)
-    except:
-        st.error(f"Model file '{path}' not found!")
+    except Exception as e:
+        st.error(f"Error loading model '{path}': {str(e)}")
         return None
 
-model = load_model(model_path)
+if TF_AVAILABLE:
+    model = load_model(model_path)
+else:
+    model = None
 
 if model is None:
-    st.stop()
+    st.warning("Model not available. Using demo mode with simulated predictions.")
+    DEMO_MODE = True
+else:
+    DEMO_MODE = False
 
 # Load data
 try:
@@ -234,18 +250,30 @@ last_30_days = scaled_data[-30:]
 input_seq = last_30_days.reshape(1, 30, 1)
 
 # Generate predictions for specified days
-predictions = []
-current_seq = input_seq.copy()
+if not DEMO_MODE and model is not None:
+    predictions = []
+    current_seq = input_seq.copy()
 
-for _ in range(forecast_days):
-    pred = model.predict(current_seq, verbose=0)
-    predictions.append(pred[0, 0])
-    # Update sequence for next prediction
-    current_seq = np.roll(current_seq, -1, axis=1)
-    current_seq[0, -1, 0] = pred[0, 0]
+    for _ in range(forecast_days):
+        pred = model.predict(current_seq, verbose=0)
+        predictions.append(pred[0, 0])
+        # Update sequence for next prediction
+        current_seq = np.roll(current_seq, -1, axis=1)
+        current_seq[0, -1, 0] = pred[0, 0]
 
-predictions = np.array(predictions).reshape(-1, 1)
-predictions = scaler.inverse_transform(predictions).flatten()
+    predictions = np.array(predictions).reshape(-1, 1)
+    predictions = scaler.inverse_transform(predictions).flatten()
+else:
+    # Demo mode - generate simulated predictions
+    st.info("📊 Demo Mode: Using simulated predictions for demonstration")
+    current_price = close_data[-1, 0]
+    trend = np.random.normal(0.001, 0.02, forecast_days)  # Small random trend
+    predictions = []
+    price = current_price
+    for i in range(forecast_days):
+        price = price * (1 + trend[i])
+        predictions.append(price)
+    predictions = np.array(predictions)
 
 # Calculate confidence intervals
 upper_bound, lower_bound = calculate_confidence_interval(predictions, confidence_level/100)
@@ -567,6 +595,8 @@ st.markdown(f"""
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: rgba(255,255,255,0.6); font-size: 0.9rem;">
+    🤖 Powered by AI | 📊 Real-time Analytics | ⚠️ Not Financial Advice
+    <br>
     <strong>Disclaimer:</strong> This is for educational purposes. Always do your own research before trading.
 </div>
 """, unsafe_allow_html=True)
